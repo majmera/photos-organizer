@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Photos organizer review</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3de;
+    --keep: #1f7a4d; --trash: #b3261e; --accent: #2f5fd0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --card: #20201e; --text: #ececea; --muted: #a2a29c; --line: #34342f;
+            --keep: #4fbf86; --trash: #f2726a; --accent: #8aa8ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 -apple-system, system-ui, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  h1 { font-size: 18px; margin: 0 0 6px; }
+  .stats { color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  nav button { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 999px; padding: 6px 14px; cursor: pointer; font: inherit; }
+  nav button.on { background: var(--text); color: var(--bg); border-color: var(--text); }
+  main { padding: 16px; max-width: 1200px; margin: 0 auto; }
+  .help { color: var(--muted); margin: 0 0 14px; }
+  .group { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px; margin-bottom: 14px; }
+  .group h2 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 0 0 10px; }
+  .shots { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 4px; }
+  .shot { flex: 0 0 auto; width: 200px; }
+  .shot img { width: 200px; height: 150px; object-fit: cover; border-radius: 6px; display: block; border: 3px solid transparent; cursor: zoom-in; background: var(--line); }
+  .shot.keep img { border-color: var(--keep); }
+  .shot.trash img { border-color: var(--trash); opacity: .55; }
+  .meta { font-size: 12px; color: var(--muted); margin-top: 4px; overflow-wrap: anywhere; }
+  .toggle { margin-top: 6px; width: 100%; border: 0; border-radius: 6px; padding: 6px; cursor: pointer; font: inherit; font-size: 13px; color: #fff; }
+  .keep .toggle { background: var(--keep); }
+  .trash .toggle { background: var(--trash); }
+  .event { display: grid; gap: 8px; }
+  .event input[type=text] { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--text); width: 100%; max-width: 480px; }
+  .event .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .samples { display: flex; gap: 6px; overflow-x: auto; }
+  .samples img { width: 96px; height: 72px; object-fit: cover; border-radius: 4px; background: var(--line); }
+  .event.rejected { opacity: .5; }
+  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 5; cursor: zoom-out; }
+  #lightbox img { max-width: 96vw; max-height: 92vh; }
+  .empty { color: var(--muted); padding: 30px 0; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Photos organizer review</h1>
+  <div class="stats" id="stats">Loading…</div>
+  <nav>
+    <button data-tab="near" class="on">Similar shots</button>
+    <button data-tab="exact">Duplicates</button>
+    <button data-tab="events">Suggested albums</button>
+  </nav>
+</header>
+<main id="main"></main>
+<div id="lightbox"><img alt=""></div>
+<script>
+const HELP = {
+  near: "Shots of the same scene taken within a minute. Green is kept, red goes to the trash list. Click the button under a photo to change it; click a photo to see it large.",
+  exact: "Copies of the same picture. The copy with the most pixels and the most complete date and location is kept.",
+  events: "Albums suggested from dates and places. Untick an album to leave it out, or rename it."
+};
+const main = document.getElementById("main");
+let tab = "near";
+
+const fmt = ts => ts ? new Date(ts * 1000).toLocaleString(undefined, {dateStyle: "medium", timeStyle: "short"}) : "no date";
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+
+async function stats() {
+  const s = await (await fetch("/api/summary")).json();
+  document.getElementById("stats").textContent =
+    `${s.photos} photos · ${s.near_groups} similar-shot groups · ${s.exact_groups} duplicate groups · ` +
+    `${s.events} suggested albums · ${s.to_trash} marked for trash` + (s.errors ? ` · ${s.errors} unreadable` : "");
+}
+
+function shotDetail(it, kind) {
+  const bits = [esc(it.filename), fmt(it.taken_at), `${it.width}×${it.height}`];
+  if (kind === "near") {
+    bits.push(`score ${(it.score * 100).toFixed(0)}`);
+    if (it.faces) bits.push(`${it.faces} face${it.faces > 1 ? "s" : ""}, eyes ${it.eyes_open == null ? "?" : Math.round(it.eyes_open * 100) + "%"}`);
+  } else {
+    bits.push(`${(it.size / 1e6).toFixed(1)} MB`);
+  }
+  return bits.join("<br>");
+}
+
+async function renderGroups(kind) {
+  const groups = await (await fetch(`/api/groups?kind=${kind}`)).json();
+  if (!groups.length) { main.innerHTML = `<p class="help">${HELP[kind]}</p><div class="empty">Nothing found.</div>`; return; }
+  main.innerHTML = `<p class="help">${HELP[kind]}</p>` + groups.map(g => `
+    <section class="group">
+      <h2>${fmt(g.items[0].taken_at)} · ${g.items.length} photos</h2>
+      <div class="shots">${g.items.map(it => `
+        <div class="shot ${it.keep ? "keep" : "trash"}" data-id="${it.id}">
+          <img loading="lazy" src="/thumb/${it.id}" alt="${esc(it.filename)}" data-full="/full/${it.id}">
+          <div class="meta">${shotDetail(it, kind)}</div>
+          <button class="toggle">${it.keep ? "Keep" : "Trash"}</button>
+        </div>`).join("")}
+      </div>
+    </section>`).join("");
+}
+
+async function renderEvents() {
+  const events = await (await fetch("/api/events")).json();
+  if (!events.length) { main.innerHTML = `<p class="help">${HELP.events}</p><div class="empty">No albums suggested.</div>`; return; }
+  main.innerHTML = `<p class="help">${HELP.events}</p>` + events.map(e => `
+    <section class="group event ${e.accepted ? "" : "rejected"}" data-id="${e.id}">
+      <div class="row">
+        <label><input type="checkbox" class="accept" ${e.accepted ? "checked" : ""}> Create</label>
+        <input type="text" class="title" value="${esc(e.title)}">
+        <span class="meta">${e.kind} · ${e.count} items · ${fmt(e.start_at)} to ${fmt(e.end_at)}</span>
+      </div>
+      <div class="samples">${e.samples.map(id => `<img loading="lazy" src="/thumb/${id}" data-full="/full/${id}" alt="">`).join("")}</div>
+    </section>`).join("");
+}
+
+function render() {
+  main.innerHTML = `<div class="empty">Loading…</div>`;
+  (tab === "events" ? renderEvents() : renderGroups(tab)).then(stats);
+}
+
+main.addEventListener("click", async ev => {
+  const img = ev.target.closest("img[data-full]");
+  if (img) {
+    const box = document.getElementById("lightbox");
+    box.querySelector("img").src = img.dataset.full;
+    box.style.display = "flex";
+    return;
+  }
+  const btn = ev.target.closest(".toggle");
+  if (btn) {
+    const shot = btn.closest(".shot");
+    const keep = !shot.classList.contains("keep");
+    await post("/api/decision", {item_id: +shot.dataset.id, keep});
+    shot.classList.toggle("keep", keep);
+    shot.classList.toggle("trash", !keep);
+    btn.textContent = keep ? "Keep" : "Trash";
+    stats();
+  }
+});
+
+main.addEventListener("change", async ev => {
+  const card = ev.target.closest(".event");
+  if (!card) return;
+  if (ev.target.classList.contains("accept")) {
+    await post("/api/event", {id: +card.dataset.id, accepted: ev.target.checked ? 1 : 0});
+    card.classList.toggle("rejected", !ev.target.checked);
+  } else if (ev.target.classList.contains("title")) {
+    await post("/api/event", {id: +card.dataset.id, title: ev.target.value});
+  }
+});
+
+document.getElementById("lightbox").addEventListener("click", e => { e.currentTarget.style.display = "none"; });
+document.querySelectorAll("nav button").forEach(b => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  tab = b.dataset.tab;
+  render();
+}));
+render();
+</script>
+</body>
+</html>

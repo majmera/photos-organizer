@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "photos-organizer"
+version = "0.1.0"
+description = "Find duplicates, weak shots and event albums in a Google Photos Takeout export"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pillow>=10",
+    "pillow-heif>=0.16",
+    "ImageHash>=4.3",
+    "numpy>=2.0",
+    "opencv-python-headless>=4.9,<5",  # 5.x drops the Haar face and eye detectors
+]
+
+[project.optional-dependencies]
+places = ["reverse_geocoder>=1.5"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+photos-organizer = "photos_organizer.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["photos_organizer*"]
+
+[tool.setuptools.package-data]
+photos_organizer = ["review/*.html"]
