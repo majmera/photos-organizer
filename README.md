@@ -12,13 +12,14 @@ Google's APIs don't let third-party apps delete photos or add existing photos to
 
 ## Setup (macOS)
 
-You need Python 3.10 or newer (`brew install python` if you don't have it).
+You need Python 3.10 or newer. The Python that ships with macOS is 3.9 and won't work, so install a newer one with [Homebrew](https://brew.sh): `brew install python@3.12`.
 
 ```sh
 git clone https://github.com/majmera/photos-organizer
 cd photos-organizer
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
+pip install --upgrade pip
 pip install -e .
 # Optional: name albums after places ("Lisbon, 20–22 Mar 2024") instead of "Trip, 20–22 Mar 2024"
 pip install -e ".[places]"
